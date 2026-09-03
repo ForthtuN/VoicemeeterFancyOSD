@@ -1,6 +1,7 @@
 ﻿using AtgDev.Voicemeeter.Types;
 using System;
 using System.Windows;
+using VoicemeeterOsdProgram.Helpers;
 
 namespace VoicemeeterOsdProgram.Core;
 
@@ -19,7 +20,16 @@ partial class OsdWindowManager
     {
         var dis = Application.Current.Dispatcher;
         VoicemeeterApiClient.ProgramTypeChange += OnVoicemeeterTypeChange;
-        VoicemeeterApiClient.NewParameters += (_, _) => dis.Invoke(UpdateOsd);
+        VoicemeeterApiClient.NewParameters += (_, _) =>
+        {
+            OsdDiagnostics.Write("VM_DIRTY", "Voicemeeter reported changed parameters");
+            dis.Invoke(() =>
+            {
+                OsdDiagnostics.Write("UPDATE_BEGIN");
+                UpdateOsd();
+                OsdDiagnostics.Write("UPDATE_END");
+            });
+        };
         VoicemeeterApiClient.VoicemeeterTurnedOff += (_, _) => dis.Invoke(OnVoicemeeterTurnedOff);
         VoicemeeterApiClient.VoicemeeterTurnedOn += (_, _) => dis.Invoke(OnVoicemeeterTurnedOn);
 
