@@ -1,0 +1,85 @@
+name: FancyOSD test build
+
+on:
+  push:
+    branches:
+      - 'test/**'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Apply test variant
+        shell: pwsh
+        run: |
+          $path = 'VoicemeeterOsdProgram/Interop/BandWindow.cs'
+          $code = Get-Content $path -Raw
+
+          if ('${{ github.ref_name }}' -eq 'test/child-hwnd') {
+            $old = @'
+            WindowStyle = unchecked((int)(WindowStyles.WS_VISIBLE | WindowStyles.WS_POPUP)),
+            // !!! may need to update hwndSource's styles on property change and only hwndSource
+            ExtendedWindowStyle = (int)((Activatable ? 0 : ExtendedWindowStyles.WS_EX_NOACTIVATE) |
+                (TopMost ? ExtendedWindowStyles.WS_EX_TOPMOST : 0) |
+                (IsClickThrough ? ExtendedWindowStyles.WS_EX_TRANSPARENT : 0)),
+            ParentWindow = hWnd,
+            UsesPerPixelTransparency = true
+'@
+            $new = @'
+            WindowStyle = (int)(WindowStyles.WS_VISIBLE | WindowStyles.WS_CHILD),
+            ParentWindow = hWnd,
+            UsesPerPixelTransparency = true
+'@
+            if (-not $code.Contains($old)) { throw 'Expected HwndSource block not found' }
+            $code = $code.Replace($old, $new)
+
+            $oldPos = 'SetWindowPos(hwndSource.Handle, IntPtr.Zero, (int)Left, (int)Top, 0, 0, SWP.NOSIZE | SWP.NOZORDER | SWP.NOACTIVATE);'
+            $newPos = 'SetWindowPos(hwndSource.Handle, IntPtr.Zero, 0, 0, 0, 0, SWP.NOSIZE | SWP.NOZORDER | SWP.NOACTIVATE);'
+            if (-not $code.Contains($oldPos)) { throw 'Expected HwndSource positioning line not found' }
+            $code = $code.Replace($oldPos, $newPos)
+          }
+          elseif ('${{ github.ref_name }}' -eq 'test/popup-zorder') {
+            $oldShow = @'
+        RepositionHwndSource();
+        OnShown();
+'@
+            $newShow = @'
+        RepositionHwndSource();
+        SetWindowPos(hwndSource.Handle, new IntPtr(-1),
+            0, 0, 0, 0,
+            SWP.NOACTIVATE | SWP.NOMOVE | SWP.NOSIZE | SWP.NOOWNERZORDER | SWP.SHOWWINDOW);
+        ShowWindow(hwndSource.Handle, (int)ShowWindowCommands.ShowNoActivate);
+        OnShown();
+'@
+            if (-not $code.Contains($oldShow)) { throw 'Expected Show() block not found' }
+            $code = $code.Replace($oldShow, $newShow)
+          }
+
+          Set-Content $path $code -Encoding UTF8
+
+      - name: Build x64 Release
+        shell: pwsh
+        run: msbuild VoicemeeterFancyOsd.sln /restore /t:Rebuild /p:Configuration=Release /p:Platform=x64 /m
+
+      - name: Show build output
+        shell: pwsh
+        run: Get-ChildItem x64/Release -Recurse | Select-Object FullName
+
+      - name: Upload test ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: FancyOSD-${{ github.run_number }}
+          path: x64/Release/**
+          if-no-files-found: error
+          compression-level: 9
