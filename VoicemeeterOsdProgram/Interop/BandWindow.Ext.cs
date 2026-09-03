@@ -14,6 +14,7 @@ public partial class BandWindow
 {
     private void BandWindowExt()
     {
+        InitDiagnostics();
         Loaded += InitCustomProperties;
         Application.Current.Exit += OnAppExit;
     }
