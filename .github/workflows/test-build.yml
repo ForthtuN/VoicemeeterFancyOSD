@@ -1,9 +1,14 @@
-name: FancyOSD test build
+name: FancyOSD validation
 
 on:
   push:
     branches:
+      - 'master'
+      - 'fix/**'
       - 'test/**'
+  pull_request:
+    branches:
+      - 'master'
   workflow_dispatch:
 
 jobs:
@@ -21,6 +26,7 @@ jobs:
         uses: microsoft/setup-msbuild@v2
 
       - name: Apply test variant
+        if: startsWith(github.ref_name, 'test/')
         shell: pwsh
         run: |
           $path = 'VoicemeeterOsdProgram/Interop/BandWindow.cs'
@@ -56,6 +62,10 @@ jobs:
           }
 
           Set-Content $path $code -Encoding UTF8
+
+      - name: Run regression tests
+        shell: pwsh
+        run: dotnet test RegressionTests/VoicemeeterFancyOsd.RegressionTests.csproj -c Release --nologo
 
       - name: Build x64 Release
         shell: pwsh

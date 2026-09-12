@@ -1,9 +1,10 @@
-﻿using AtgDev.Utils;
+using AtgDev.Utils;
 using AtgDev.Voicemeeter;
 using AtgDev.Voicemeeter.Types;
 using AtgDev.Voicemeeter.Utils;
 using AtgDev.Voicemeeter.Extensions;
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Timers;
 using System.Windows;
@@ -31,6 +32,8 @@ public static class VoicemeeterApiClient
     private static bool m_isVmTurningOn;
     private static Rate m_poolingRate;
     private static bool m_isInit = false;
+    private static int m_isPolling;
+    private static int m_isExiting;
 
     private static Logger m_logger = Globals.Logger;
 
@@ -53,7 +56,10 @@ public static class VoicemeeterApiClient
 
         await LoadAsync();
 
-        m_isInit = true;
+        // LoadAsync logs and absorbs initialization failures. Only mark this
+        // wrapper initialized after the API client actually reached its ready
+        // state so a later call can retry a transient startup failure.
+        m_isInit = IsInitialized;
     }
 
     public static RemoteApiWrapper Api { get; private set; }
@@ -128,6 +134,7 @@ public static class VoicemeeterApiClient
                 Rate.Slow => 15,
                 Rate.Normal => 30,
                 Rate.Fast => 60,
+                Rate.VeryFast => 140,
                 _ => 30
             };
             m_loopTimer.Interval = interval;
@@ -215,27 +222,64 @@ public static class VoicemeeterApiClient
 
     public static void Exit()
     {
-
+        if (Interlocked.Exchange(ref m_isExiting, 1) != 0) return;
         System.Diagnostics.Debug.WriteLine("Exiting VMRAPI");
         m_loopTimer?.Stop();
-        Api?.Logout();
+
+        // Do not block the UI thread waiting for an in-flight polling callback:
+        // that callback may itself be synchronously dispatching an OSD update to
+        // the UI thread. Claim the polling slot only if it is idle; otherwise the
+        // callback that already owns it performs Logout from its finally block.
+        if (Interlocked.CompareExchange(ref m_isPolling, 1, 0) == 0)
+        {
+            try
+            {
+                Api?.Logout();
+            }
+            finally
+            {
+                Volatile.Write(ref m_isPolling, 0);
+            }
+        }
     }
 
     private static void OnTimerTick(object sender, ElapsedEventArgs e)
     {
-        HandleServerConnection();
+        if (Volatile.Read(ref m_isExiting) != 0) return;
+        if (Interlocked.Exchange(ref m_isPolling, 1) != 0) return;
 
-        if (!IsHandlingParams)
+        try
         {
-            _ = Api.IsParametersDirty();
-            IsIdling = true;
-            return;
+            if (Volatile.Read(ref m_isExiting) != 0) return;
+
+            HandleServerConnection();
+
+            if (!IsHandlingParams)
+            {
+                _ = Api.IsParametersDirty();
+                IsIdling = true;
+                return;
+            }
+
+            if (!m_isVmRunning && m_isVmTurningOn && m_isTypeChanging) return;
+
+            HandleProgramType();
+            HandleParameters();
         }
-
-        if (!m_isVmRunning && m_isVmTurningOn && m_isTypeChanging) return;
-
-        HandleProgramType();
-        HandleParameters();
+        finally
+        {
+            try
+            {
+                if (Volatile.Read(ref m_isExiting) != 0)
+                {
+                    Api?.Logout();
+                }
+            }
+            finally
+            {
+                Volatile.Write(ref m_isPolling, 0);
+            }
+        }
     }
 
     private static void HandleServerConnection()

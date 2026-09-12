@@ -334,6 +334,23 @@ public partial class BandWindow : ContentControl, IWndProcObject
                 wind_class.hInstance,
                 IntPtr.Zero,
                 (int)ZBandID);
+
+            if (hWnd == IntPtr.Zero)
+            {
+                hWnd = CreateWindowEx(
+                    extStyles,
+                    regResult,
+                    string.Empty,
+                    styles,
+                    (int)Math.Round(Left),
+                    (int)Math.Round(Top),
+                    0,
+                    0,
+                    IntPtr.Zero,
+                    IntPtr.Zero,
+                    wind_class.hInstance,
+                    IntPtr.Zero);
+            }
         }
         else
         {
@@ -404,10 +421,6 @@ public partial class BandWindow : ContentControl, IWndProcObject
                 HandleDragMoved();
                 break;
 
-            case WindowMessage.WM_DESTROY:
-                DestroyWindow(hWnd);
-                break;
-
             case WindowMessage.WM_DPICHANGED:
                 HandleDpiChange(wParam, lParam);
                 break;
@@ -422,9 +435,20 @@ public partial class BandWindow : ContentControl, IWndProcObject
         var result = hookManager.TryHandleWindowMessage(hWnd, msg, wParam, lParam, out bool handled);
         if (handled)
         {
+            if (message == WindowMessage.WM_NCDESTROY)
+            {
+                Handle = IntPtr.Zero;
+                HasSourceCreated = false;
+            }
             return result;
         }
-        return DefWindowProc(hWnd, msg, wParam, lParam);
+        result = DefWindowProc(hWnd, msg, wParam, lParam);
+        if (message == WindowMessage.WM_NCDESTROY)
+        {
+            Handle = IntPtr.Zero;
+            HasSourceCreated = false;
+        }
+        return result;
     }
 
     private void RepositionHwndSource()

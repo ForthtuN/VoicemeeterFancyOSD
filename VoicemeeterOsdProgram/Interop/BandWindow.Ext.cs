@@ -143,7 +143,7 @@ public partial class BandWindow
         var hWndSrc = hwndSource.Handle;
         if ((hWnd == IntPtr.Zero) || (hWndSrc == IntPtr.Zero) || !HasSourceCreated) return;
 
-        int stylesSrc = GetWindowLongPtr(hWndSrc, (int)GetWindowLongFields.GWL_EXSTYLE).ToInt32();
+        int stylesSrc = GetWindowLongPtrChecked(hWndSrc, (int)GetWindowLongFields.GWL_EXSTYLE).ToInt32();
         var t = (int)ExtendedWindowStyles.WS_EX_TRANSPARENT;
         if (isEnabled)
         {
@@ -154,7 +154,7 @@ public partial class BandWindow
             stylesSrc &= ~t;
         }
 
-        SetWindowLongPtr(hWndSrc, (int)GetWindowLongFields.GWL_EXSTYLE, stylesSrc);
+        SetWindowLongPtrChecked(hWndSrc, (int)GetWindowLongFields.GWL_EXSTYLE, stylesSrc);
         //SetLayeredWindowAttributes(hWnd, 0, 255, LWA_ALPHA);
         //UpdateLayeredWindow(hWnd, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, 0, IntPtr.Zero, LWA_ALPHA);
         /*SetWindowPos(hWnd, IntPtr.Zero, 0, 0, 0, 0, SWP.NOMOVE | SWP.NOSIZE | SWP.NOZORDER |

@@ -1,4 +1,5 @@
 ﻿using System;
+using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Security;
 using System.Text;
@@ -477,7 +478,7 @@ public static partial class NativeMethods
 {
     #region Structures
 
-    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     internal struct WNDCLASSEX
     {
         [MarshalAs(UnmanagedType.U4)]
@@ -675,10 +676,10 @@ public static partial class NativeMethods
 
     #region Windowing related
 
-    [DllImport("user32.dll", SetLastError = true, EntryPoint = "CreateWindowEx")]
+    [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode, EntryPoint = "CreateWindowExW", ExactSpelling = true)]
     internal static extern IntPtr CreateWindowEx(int dwExStyle,
         ushort regResult,
-        [MarshalAs(UnmanagedType.LPWStr)] string lpWindowName,
+        string lpWindowName,
         uint dwStyle,
         int x,
         int y,
@@ -689,7 +690,7 @@ public static partial class NativeMethods
         IntPtr hInstance,
         IntPtr lpParam);
 
-    [DllImport("user32.dll", SetLastError = true, EntryPoint = "CreateWindowInBand")]
+    [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode, EntryPoint = "CreateWindowInBand", ExactSpelling = true)]
     public static extern IntPtr CreateWindowInBand(int dwExStyle,
                ushort atomBomb,
                [MarshalAs(UnmanagedType.LPWStr)] string lpWindowName,
@@ -704,10 +705,10 @@ public static partial class NativeMethods
                IntPtr lpParam,
                int dwBand);
 
-    [DllImport("user32.dll", SetLastError = true, EntryPoint = "RegisterClassEx")]
+    [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode, EntryPoint = "RegisterClassExW", ExactSpelling = true)]
     internal static extern ushort RegisterClassEx([In] ref WNDCLASSEX lpWndClass);
 
-    [DllImport("user32.dll")]
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "DefWindowProcW", ExactSpelling = true)]
     internal static extern IntPtr DefWindowProc(IntPtr hWnd, uint uMsg, IntPtr wParam, IntPtr lParam);
 
     [DllImport("user32.dll")]
@@ -717,10 +718,10 @@ public static partial class NativeMethods
     [DllImport("user32.dll")]
     internal static extern bool UpdateWindow(IntPtr hWnd);
 
-    [LibraryImport("user32.dll", EntryPoint = "GetWindowLongW")]
+    [LibraryImport("user32.dll", EntryPoint = "GetWindowLongW", SetLastError = true)]
     private static partial IntPtr GetWindowLongPtr32(IntPtr hWnd, int nIndex);
 
-    [LibraryImport("user32.dll", EntryPoint = "GetWindowLongPtrW")]
+    [LibraryImport("user32.dll", EntryPoint = "GetWindowLongPtrW", SetLastError = true)]
     private static partial IntPtr GetWindowLongPtr64(IntPtr hWnd, int nIndex);
 
     public static IntPtr GetWindowLongPtr(IntPtr hWnd, int nIndex)
@@ -731,10 +732,10 @@ public static partial class NativeMethods
             return GetWindowLongPtr32(hWnd, nIndex);
     }
 
-    [LibraryImport("user32.dll", EntryPoint = "SetWindowLongW")]
+    [LibraryImport("user32.dll", EntryPoint = "SetWindowLongW", SetLastError = true)]
     private static partial int SetWindowLong32(IntPtr hWnd, int nIndex, int dwNewLong);
 
-    [LibraryImport("user32.dll", EntryPoint = "SetWindowLongPtrW")]
+    [LibraryImport("user32.dll", EntryPoint = "SetWindowLongPtrW", SetLastError = true)]
     private static partial IntPtr SetWindowLongPtr64(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
 
     internal static IntPtr SetWindowLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong)
@@ -823,12 +824,31 @@ public static partial class NativeMethods
         var rws = (uint)wsToRemove;
         var awsex = (uint)wsEXToAdd;
         var rwsex = (uint)wsEXToRemove;
-        var style = (long)GetWindowLongPtr(hWnd, (int)GetWindowLongFields.GWL_STYLE);
-        var exstyle = (long)GetWindowLongPtr(hWnd, (int)GetWindowLongFields.GWL_EXSTYLE);
+        var style = (long)GetWindowLongPtrChecked(hWnd, (int)GetWindowLongFields.GWL_STYLE);
+        var exstyle = (long)GetWindowLongPtrChecked(hWnd, (int)GetWindowLongFields.GWL_EXSTYLE);
         style |= aws; style &= ~rws;
         exstyle |= awsex; exstyle &= ~rwsex;
-        SetWindowLongPtr(hWnd, (int)GetWindowLongFields.GWL_STYLE, new(style));
-        SetWindowLongPtr(hWnd, (int)GetWindowLongFields.GWL_EXSTYLE, new(exstyle));
+        SetWindowLongPtrChecked(hWnd, (int)GetWindowLongFields.GWL_STYLE, new(style));
+        SetWindowLongPtrChecked(hWnd, (int)GetWindowLongFields.GWL_EXSTYLE, new(exstyle));
+    }
+
+    internal static IntPtr GetWindowLongPtrChecked(IntPtr hWnd, int nIndex)
+    {
+        Marshal.SetLastPInvokeError(0);
+        var result = GetWindowLongPtr(hWnd, nIndex);
+        var error = Marshal.GetLastPInvokeError();
+        if (result == IntPtr.Zero && error != 0)
+            throw new Win32Exception(error);
+        return result;
+    }
+
+    internal static void SetWindowLongPtrChecked(IntPtr hWnd, int nIndex, IntPtr value)
+    {
+        Marshal.SetLastPInvokeError(0);
+        var previous = SetWindowLongPtr(hWnd, nIndex, value);
+        var error = Marshal.GetLastPInvokeError();
+        if (previous == IntPtr.Zero && error != 0)
+            throw new Win32Exception(error);
     }
 
     #endregion

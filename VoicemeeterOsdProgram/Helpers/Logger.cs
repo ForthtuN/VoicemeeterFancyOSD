@@ -36,10 +36,9 @@ public class Logger : IDisposable, IAsyncDisposable
 
     private Channel<Message> m_messageChannel = Channel.CreateUnbounded<Message>(new() {
         SingleReader = true,
-        SingleWriter = true
+        SingleWriter = false
     });
-    private CancellationTokenSource m_tokenSource = new();
-    private CancellationToken m_token;
+    private Task m_processTask;
     private StreamWriter m_writer;
     private uint m_maxLogs = 0;
 
@@ -47,11 +46,9 @@ public class Logger : IDisposable, IAsyncDisposable
     {
         if (!Directory.Exists(folderPath)) throw new DirectoryNotFoundException(folderPath);
 
-        m_token = m_tokenSource.Token;
-
         FolderPath = folderPath;
 
-        Task.Run(async () => await ProcessLogsLoop());
+        m_processTask = Task.Run(async () => await ProcessLogsLoop());
     }
 
     public string FolderPath { get; }
@@ -136,7 +133,7 @@ public class Logger : IDisposable, IAsyncDisposable
 
     private async ValueTask ProcessLogsLoop()
     {
-        await foreach (var m in m_messageChannel.Reader.ReadAllAsync(m_token))
+        await foreach (var m in m_messageChannel.Reader.ReadAllAsync())
         {
 #if !DEBUG
             if (m.Type == LogType.Debug) continue;
@@ -176,34 +173,38 @@ public class Logger : IDisposable, IAsyncDisposable
         return false;
     }
 
-    private bool m_disposed = false;
+    private int m_disposeStarted;
 
     public void Dispose()
     {
-        if (m_disposed) return;
+        if (Interlocked.Exchange(ref m_disposeStarted, 1) != 0) return;
+
+        m_messageChannel.Writer.TryComplete();
+        try
+        {
+            m_processTask?.GetAwaiter().GetResult();
+        }
+        catch (OperationCanceledException) { }
 
         m_writer?.Dispose();
-        m_messageChannel.Writer.Complete();
-
-        m_disposed = true;
 
         GC.SuppressFinalize(this);
     }
 
     public async ValueTask DisposeAsync()
     {
-        if (m_disposed) return;
+        if (Interlocked.Exchange(ref m_disposeStarted, 1) != 0) return;
+
+        m_messageChannel.Writer.TryComplete();
+        try
+        {
+            if (m_processTask is not null) await m_processTask;
+        }
+        catch (OperationCanceledException) { }
 
         await (m_writer?.DisposeAsync() ?? ValueTask.CompletedTask);
-        m_tokenSource.Cancel();
-        m_tokenSource.Dispose();
-        m_disposed = true;
         
         GC.SuppressFinalize(this);
     }
 
-    ~Logger()
-    {
-        Dispose();
-    }
 }

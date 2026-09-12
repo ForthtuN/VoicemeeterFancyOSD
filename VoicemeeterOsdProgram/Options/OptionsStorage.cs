@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Threading;
 
@@ -24,7 +25,9 @@ public static class OptionsStorage
     private static readonly IniDataParser m_parser = new();
     private static IniData m_data = new();
     private static FileSystemWatcher m_watcher = new();
-    private static PeriodicTimerExt m_timer = new(TimeSpan.FromSeconds(1));
+    private static readonly object m_watcherDebounceLock = new();
+    private static readonly SemaphoreSlim m_watcherReloadGate = new(1, 1);
+    private static CancellationTokenSource m_watcherDebounceCts;
     private static bool m_isWatcherEnabled;
     private static bool m_isWatcherPaused;
     private static bool m_isInit = false;
@@ -85,13 +88,13 @@ public static class OptionsStorage
                 try { m_watcher.EnableRaisingEvents = !IsWatcherPaused; } catch { }
                 if (IsWatcherPaused)
                 {
-                    m_timer.Stop();
+                    CancelPendingWatcherReload();
                 }
             }
             else
             {
                 try { m_watcher.EnableRaisingEvents = false; } catch {  }
-                m_timer.Stop();
+                CancelPendingWatcherReload();
             }
         }
     }
@@ -105,14 +108,14 @@ public static class OptionsStorage
             if (value)
             {
                 m_watcher.EnableRaisingEvents = false;
-                m_timer.Stop();
+                CancelPendingWatcherReload();
             }
             else
             {
                 m_watcher.EnableRaisingEvents = IsWatcherEnabled;
                 if (!IsWatcherEnabled)
                 {
-                    m_timer.Stop();
+                    CancelPendingWatcherReload();
                 }
             }
         }
@@ -295,21 +298,57 @@ public static class OptionsStorage
 
     private static void Exit()
     {
-        m_timer?.Stop();
+        CancelPendingWatcherReload();
     }
 
-    private static async void OnConfigFileChanged(object sender, FileSystemEventArgs e)
+    private static void OnConfigFileChanged(object sender, FileSystemEventArgs e)
     {
-        // need to to use Dispatcher or this code will run on another thread
-        _ = await m_disp.InvokeAsync(async () =>
-          {
-              m_timer.Start();
-              if (await m_timer.WaitForNextTickAsync())
-              {
-                  m_timer.Stop();
-                  m_logger?.Log("Config file changed, validating...");
-                  await ValidateConfigFileAsync();
-              }
-          });
+        CancellationToken token;
+        lock (m_watcherDebounceLock)
+        {
+            m_watcherDebounceCts?.Cancel();
+            m_watcherDebounceCts?.Dispose();
+            m_watcherDebounceCts = new();
+            token = m_watcherDebounceCts.Token;
+        }
+
+        _ = HandleConfigFileChangedAsync(token);
+    }
+
+    private static async Task HandleConfigFileChangedAsync(CancellationToken token)
+    {
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(1), token);
+            await m_watcherReloadGate.WaitAsync(token);
+            try
+            {
+                // Options raise events consumed by UI code, so apply the reload on the UI dispatcher.
+                await m_disp.InvokeAsync(async () =>
+                {
+                    m_logger?.Log("Config file changed, validating...");
+                    await ValidateConfigFileAsync();
+                }).Task.Unwrap();
+            }
+            finally
+            {
+                m_watcherReloadGate.Release();
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception e)
+        {
+            m_logger?.LogError($"Error handling config file change {e.GetType()} {e.Message}");
+        }
+    }
+
+    private static void CancelPendingWatcherReload()
+    {
+        lock (m_watcherDebounceLock)
+        {
+            m_watcherDebounceCts?.Cancel();
+            m_watcherDebounceCts?.Dispose();
+            m_watcherDebounceCts = null;
+        }
     }
 }

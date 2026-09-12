@@ -1,5 +1,4 @@
-﻿using AtgDev.Utils;
-using AtgDev.Utils.DirectoryInfoExtensions;
+using AtgDev.Utils;
 using AtgDev.Utils.StreamExtensions;
 using AtgDev.Utils.ZipFileExtensions;
 using System;
@@ -138,7 +137,8 @@ public static class UpdateManager
         return result;
     }
 
-    public static bool TryDeleteBackup() => TryDeleteFolder(BackupFolderName);
+    public static bool TryDeleteBackup() =>
+        TryDeleteFolder(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, BackupFolderName));
 
     public static void CancelUpdate()
     {
@@ -162,7 +162,6 @@ public static class UpdateManager
 
             if (!TryOvewriteFiles(copyFrom, copyTo, copyProgress))
             {
-                TryDeleteBackup();
                 return false;
             }
 
@@ -181,47 +180,12 @@ public static class UpdateManager
 
     private static bool TryOvewriteFiles(string fromFolder, string toFolder, IProgress<double> copyProgress = null)
     {
-        bool result = false;
-        try
-        {
-            DirectoryInfo fromDir, toDir, bakDir;
-            fromDir = new(fromFolder);
-            toDir = new(toFolder);
-            bakDir = Directory.CreateDirectory(Path.Combine(toDir.ToString(), BackupFolderName));
-
-            ulong totalSize, readSize = 0;
-            totalSize = fromDir.GetSize();
-
-            foreach (var file in fromDir.GetFiles())
-            {
-                FileInfo targetFile = new(Path.Combine(toFolder, file.Name));
-                if (targetFile.Exists)
-                {
-                    string bakPath = Path.Combine(bakDir.ToString(), targetFile.Name);
-                    targetFile.MoveTo(bakPath, true);
-                }
-                file.MoveTo(Path.Combine(toFolder, file.Name));
-
-                readSize += (ulong)file.Length;
-                if (totalSize != 0) copyProgress.Report(readSize / totalSize);
-                
-            }
-
-            foreach (var dir in fromDir.GetDirectories())
-            {
-                dir.MoveTo(Path.Combine(bakDir.ToString(), dir.Name));
-
-                readSize += dir.GetSize();
-                if (totalSize != 0) copyProgress.Report(readSize / totalSize);
-            }
-
-            result = true;
-        }
-        catch (Exception e)
-        {
-            logger?.LogError($"Error overwriting files {e}");
-        }
-        return result;
+        return UpdaterFileInstaller.TryInstall(
+            fromFolder,
+            toFolder,
+            BackupFolderName,
+            copyProgress,
+            e => logger?.LogError($"Error overwriting files {e}"));
     }
 
     private static async Task<UpdaterResult> TryUnzipAsync(string path, IProgress<double> progress = null)

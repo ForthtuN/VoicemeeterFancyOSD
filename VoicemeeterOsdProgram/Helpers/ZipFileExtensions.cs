@@ -16,13 +16,22 @@ public static class ZipFileExtension
     {
         using ZipArchive archive = ZipFile.OpenRead(sourceArchiveFileName);
 
+        string destinationRoot = Path.GetFullPath(destinationDirectoryName);
+        string destinationRootWithSeparator = Path.EndsInDirectorySeparator(destinationRoot)
+            ? destinationRoot
+            : destinationRoot + Path.DirectorySeparatorChar;
+
         long totalBytes = archive.Entries.Sum(el => el.Length);
         long currentBytes = 0;
 
         foreach (var entry in archive.Entries)
         {
             var fullName = entry.FullName;
-            string path = Path.GetFullPath(Path.Combine(destinationDirectoryName, fullName));
+            string path = Path.GetFullPath(Path.Combine(destinationRoot, fullName));
+            if (!path.StartsWith(destinationRootWithSeparator, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidDataException($"Archive entry escapes destination directory: {fullName}");
+            }
 
             if (IsDirectory(entry))
             {
@@ -30,6 +39,7 @@ public static class ZipFileExtension
             }
             else
             {
+                Directory.CreateDirectory(Path.GetDirectoryName(path));
                 await using Stream inStream = entry.Open();
                 await using Stream outStream = File.Create(path);
                 currentBytes = await ProcessStreams(inStream, outStream, 
@@ -55,8 +65,8 @@ public static class ZipFileExtension
 
             streamBytesRead += bytesRead;
             currentBytes += bytesRead;
-            fileProg?.Report(streamBytesRead * 100.0 / inputLength);
-            totalProg?.Report(currentBytes * 100.0 / totalBytes);
+            fileProg?.Report(inputLength == 0 ? 100 : streamBytesRead * 100.0 / inputLength);
+            totalProg?.Report(totalBytes == 0 ? 100 : currentBytes * 100.0 / totalBytes);
         }
         return currentBytes;
     }
@@ -65,7 +75,6 @@ public static class ZipFileExtension
     {
         return string.IsNullOrEmpty(entry.Name) &&
             !string.IsNullOrEmpty(entry.FullName) &&
-            entry.FullName[^1] == '/' ||
-            entry.FullName[^1] == '\\';
+            (entry.FullName[^1] == '/' || entry.FullName[^1] == '\\');
     }
 }

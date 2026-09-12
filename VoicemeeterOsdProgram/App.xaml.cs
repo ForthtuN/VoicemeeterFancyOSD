@@ -82,4 +82,18 @@ public partial class App : Application
     {
         Globals.Logger?.LogCritical($"Unhandled exception: {e.Exception}");
     }
+
+    protected override void OnExit(ExitEventArgs e)
+    {
+        // Raise the normal WPF Exit event first so services can log their
+        // shutdown messages, then drain and close the shared logger last.
+        try
+        {
+            base.OnExit(e);
+        }
+        finally
+        {
+            Globals.Logger?.Dispose();
+        }
+    }
 }
