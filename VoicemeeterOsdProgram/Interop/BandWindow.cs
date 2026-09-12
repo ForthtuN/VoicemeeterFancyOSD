@@ -370,6 +370,7 @@ public partial class BandWindow : ContentControl, IWndProcObject
         }
         if (hWnd == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
 
+        WndProcHookManager.EnsureRegisteredForIWndProcObject(this, hookManager);
         Handle = hWnd;
         OnSourceCreated();
 
@@ -437,18 +438,24 @@ public partial class BandWindow : ContentControl, IWndProcObject
         {
             if (message == WindowMessage.WM_NCDESTROY)
             {
-                Handle = IntPtr.Zero;
-                HasSourceCreated = false;
+                FinalizeNativeDestroy();
             }
             return result;
         }
         result = DefWindowProc(hWnd, msg, wParam, lParam);
         if (message == WindowMessage.WM_NCDESTROY)
         {
-            Handle = IntPtr.Zero;
-            HasSourceCreated = false;
+            FinalizeNativeDestroy();
         }
         return result;
+    }
+
+    private void FinalizeNativeDestroy()
+    {
+        hookManager.OnHwndDestroyed();
+        WndProcHookManager.UnregisterForIWndProcObject(this);
+        Handle = IntPtr.Zero;
+        HasSourceCreated = false;
     }
 
     private void RepositionHwndSource()

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 
 namespace TopmostApp.Interop;
@@ -27,6 +27,16 @@ public class WndProcHookManager
         return hookManager;
     }
 
+    internal static void EnsureRegisteredForIWndProcObject(IWndProcObject wndProcObject, WndProcHookManager hookManager)
+    {
+        if (wndProcObject == null)
+            throw new ArgumentNullException(nameof(wndProcObject));
+        if (hookManager == null)
+            throw new ArgumentNullException(nameof(hookManager));
+
+        hookManagers[wndProcObject] = hookManager;
+    }
+
     internal static WndProcHookManager GetForIWndProcObject(IWndProcObject wndProcObject)
     {
         if (wndProcObject == null)
@@ -38,6 +48,12 @@ public class WndProcHookManager
         }
 
         return null;
+    }
+
+    internal static void UnregisterForIWndProcObject(IWndProcObject wndProcObject)
+    {
+        if (wndProcObject == null) return;
+        hookManagers.Remove(wndProcObject);
     }
 
     public static WndProcHookManager GetForBandWindow(BandWindow bandWindow)
@@ -71,6 +87,7 @@ public class WndProcHookManager
 
     internal void OnHwndCreated(IntPtr hWnd)
     {
+        hooks.Clear();
         foreach (var hookHandler in hookHandlers)
         {
             uint msg = hookHandler.OnHwndCreated(hWnd, out bool register);
@@ -79,6 +96,11 @@ public class WndProcHookManager
                 RegisterHookHandlerForMessage(msg, hookHandler);
             }
         }
+    }
+
+    internal void OnHwndDestroyed()
+    {
+        hooks.Clear();
     }
 
     internal IntPtr TryHandleWindowMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam, out bool handled)
