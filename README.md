@@ -16,6 +16,9 @@ The program is portable, no installation is required, but you need [.NET 10 Desk
 
 Download the latest version of VoicemeeterFancyOSD from the [Releases](https://github.com/A-tG/VoicemeeterFancyOSD/releases) page, unpack and launch VoicemeeterFancyOsdHost.exe (if you're on Windows 8.1 or newer). For any other scenario such as running an older Windows version, or if VoicemeeterFancyOsdHost.exe simply doesn't work for some reason, you may instead try and run VoicemeeterFancyOsd.exe. Do not use the program from Windows' 'Program Files' since that might cause problems creating the config file or installing future updates because of Windows' permissions and policies.
 
+# Fork hardening notes
+This fork includes a focused 1.2.2.2 stability and reliability hardening pass. See [HARDENING_NOTES.md](HARDENING_NOTES.md) for the complete fix list, validation results, and suggested upstream pull-request split.
+
 # Upcoming features
 Check the [Milestones](https://github.com/A-tG/VoicemeeterFancyOSD/milestones)
 
