@@ -1,4 +1,4 @@
-﻿using AtgDev.Utils;
+using AtgDev.Utils;
 using IniParser.Model;
 using IniParser.Parser;
 using System;
@@ -23,11 +23,11 @@ public static class OptionsStorage
     public static readonly OtherOptions Other = new();
 
     private static readonly IniDataParser m_parser = new();
-    private static IniData m_data = new();
+    private static readonly object m_savedDataLock = new();
+    private static IniData m_savedDataSnapshot = new();
     private static FileSystemWatcher m_watcher = new();
-    private static readonly object m_watcherDebounceLock = new();
-    private static readonly SemaphoreSlim m_watcherReloadGate = new(1, 1);
-    private static CancellationTokenSource m_watcherDebounceCts;
+    private static readonly AsyncDebouncer m_watcherDebouncer = new(TimeSpan.FromSeconds(1));
+    private static readonly object m_fileWriteLock = new();
     private static bool m_isWatcherEnabled;
     private static bool m_isWatcherPaused;
     private static bool m_isInit = false;
@@ -67,8 +67,10 @@ public static class OptionsStorage
         {
             m_watcher.Path = Path.GetDirectoryName(ConfigFilePath);
             m_watcher.Filter = Path.GetFileName(ConfigFilePath);
-            m_watcher.NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.Size;
+            m_watcher.NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.Size | NotifyFilters.FileName;
             m_watcher.Changed += OnConfigFileChanged;
+            m_watcher.Created += OnConfigFileChanged;
+            m_watcher.Renamed += OnConfigFileChanged;
             IsWatcherEnabled = true;
         }
         catch (Exception e)
@@ -152,37 +154,24 @@ public static class OptionsStorage
 
     public static void SaveData()
     {
-        var directoryPath = Path.GetDirectoryName(ConfigFilePath);
-        if (!Directory.Exists(directoryPath))
+        IniData snapshot = CreateIniData();
+        lock (m_savedDataLock)
         {
-            Directory.CreateDirectory(directoryPath);
+            m_savedDataSnapshot = snapshot;
         }
-
-        OptionsToIniData(Program, nameof(Program));
-        OptionsToIniData(Osd, nameof(Osd));
-        OptionsToIniData(Voicemeeter, nameof(Voicemeeter));
-        OptionsToIniData(Updater, nameof(Updater));
-        OptionsToIniData(AltOsdOptionsFullscreenApps, nameof(AltOsdOptionsFullscreenApps));
-        OptionsToIniData(Logger, nameof(Logger));
     }
 
     public static bool TrySave()
     {
-
         m_logger?.Log("Writing config...");
         bool result = false;
         if (!m_isInit) return result;
 
         IsWatcherPaused = true;
-
         try
         {
-            SaveData();
-            using (StreamWriter sw = new(ConfigFilePath))
-            {
-                sw.Write(m_data.ToString());
-            }
-
+            IniData data = CreateIniData();
+            WriteConfigAtomically(data.ToString());
             result = true;
             m_logger?.Log("Writing config: OK");
         }
@@ -190,8 +179,10 @@ public static class OptionsStorage
         {
             m_logger?.LogError($"Writing config: FAILED {e.GetType} {e.Message}");
         }
-
-        IsWatcherPaused = false;
+        finally
+        {
+            IsWatcherPaused = false;
+        }
         return result;
     }
 
@@ -202,15 +193,11 @@ public static class OptionsStorage
         if (!m_isInit) return result;
 
         IsWatcherPaused = true;
-
         try
         {
-            SaveData();
-            await using (StreamWriter sw = new(ConfigFilePath))
-            {
-                await sw.WriteAsync(m_data.ToString());
-            }
-
+            IniData data = CreateIniData();
+            string text = data.ToString();
+            await Task.Run(() => WriteConfigAtomically(text));
             result = true;
             m_logger?.Log("Writing config: OK");
         }
@@ -218,8 +205,10 @@ public static class OptionsStorage
         {
             m_logger?.LogError($"Writing config: FAILED {e.GetType} {e.Message}");
         }
-
-        IsWatcherPaused = false;
+        finally
+        {
+            IsWatcherPaused = false;
+        }
         return result;
     }
 
@@ -230,7 +219,6 @@ public static class OptionsStorage
         if (!m_isInit) return result;
 
         IsWatcherPaused = false;
-
         try
         {
             const long MB = 1024 * 1024;
@@ -238,16 +226,15 @@ public static class OptionsStorage
 
             using StreamReader sr = new(ConfigFilePath);
             string fileData = await sr.ReadToEndAsync();
+            IniData data = m_parser.Parse(fileData);
 
-            m_data = m_parser.Parse(fileData);
-            IniDataToOptions(Program, nameof(Program));
-            IniDataToOptions(Osd, nameof(Osd));
-            IniDataToOptions(Voicemeeter, nameof(Voicemeeter));
-            IniDataToOptions(Updater, nameof(Updater));
-            IniDataToOptions(AltOsdOptionsFullscreenApps, nameof(AltOsdOptionsFullscreenApps));
-            IniDataToOptions(Logger, nameof(Logger));
+            IniDataToOptions(data, Program, nameof(Program));
+            IniDataToOptions(data, Osd, nameof(Osd));
+            IniDataToOptions(data, Voicemeeter, nameof(Voicemeeter));
+            IniDataToOptions(data, Updater, nameof(Updater));
+            IniDataToOptions(data, AltOsdOptionsFullscreenApps, nameof(AltOsdOptionsFullscreenApps));
+            IniDataToOptions(data, Logger, nameof(Logger));
 
-            m_data = new();
             result = true;
             m_logger?.Log("Reading config: OK");
         }
@@ -255,17 +242,51 @@ public static class OptionsStorage
         {
             m_logger?.LogError($"Reading config: FAILED {e.GetType} {e.Message}");
         }
-
-        IsWatcherPaused = true;
+        finally
+        {
+            IsWatcherPaused = true;
+        }
         return result;
     }
 
-    private static void OptionsToIniData(OptionsBase opt, string sectionName)
+    private static IniData CreateIniData()
+    {
+        IniData data = new();
+        OptionsToIniData(data, Program, nameof(Program));
+        OptionsToIniData(data, Osd, nameof(Osd));
+        OptionsToIniData(data, Voicemeeter, nameof(Voicemeeter));
+        OptionsToIniData(data, Updater, nameof(Updater));
+        OptionsToIniData(data, AltOsdOptionsFullscreenApps, nameof(AltOsdOptionsFullscreenApps));
+        OptionsToIniData(data, Logger, nameof(Logger));
+        return data;
+    }
+
+    private static void WriteConfigAtomically(string text)
+    {
+        string directoryPath = Path.GetDirectoryName(ConfigFilePath);
+        if (!Directory.Exists(directoryPath)) Directory.CreateDirectory(directoryPath);
+
+        string tempPath = Path.Combine(directoryPath, $".{Path.GetFileName(ConfigFilePath)}.{Guid.NewGuid():N}.tmp");
+        lock (m_fileWriteLock)
+        {
+            try
+            {
+                File.WriteAllText(tempPath, text);
+                File.Move(tempPath, ConfigFilePath, true);
+            }
+            finally
+            {
+                if (File.Exists(tempPath)) File.Delete(tempPath);
+            }
+        }
+    }
+
+    private static void OptionsToIniData(IniData data, OptionsBase opt, string sectionName)
     {
         foreach (var item in opt.ToDict())
         {
             var optName = item.Key;
-            m_data[sectionName][optName] = item.Value;
+            data[sectionName][optName] = item.Value;
 
             var description = opt.GetOptionDescription(optName);
             for (int i = 0; i < description.Count; i++) // prepend space
@@ -274,15 +295,15 @@ public static class OptionsStorage
             }
             if (description.Count > 0)
             {
-                m_data[sectionName].GetKeyData(optName).Comments = description;
+                data[sectionName].GetKeyData(optName).Comments = description;
             }
         }
     }
 
-    private static void IniDataToOptions(OptionsBase opt, string sectionName)
+    private static void IniDataToOptions(IniData data, OptionsBase opt, string sectionName)
     {
         Dictionary<string, string> dict = new();
-        foreach (var item in m_data[sectionName])
+        foreach (var item in data[sectionName])
         {
             dict.Add(item.KeyName, item.Value);
         }
@@ -303,24 +324,8 @@ public static class OptionsStorage
 
     private static void OnConfigFileChanged(object sender, FileSystemEventArgs e)
     {
-        CancellationToken token;
-        lock (m_watcherDebounceLock)
+        m_watcherDebouncer.Schedule(async token =>
         {
-            m_watcherDebounceCts?.Cancel();
-            m_watcherDebounceCts?.Dispose();
-            m_watcherDebounceCts = new();
-            token = m_watcherDebounceCts.Token;
-        }
-
-        _ = HandleConfigFileChangedAsync(token);
-    }
-
-    private static async Task HandleConfigFileChangedAsync(CancellationToken token)
-    {
-        try
-        {
-            await Task.Delay(TimeSpan.FromSeconds(1), token);
-            await m_watcherReloadGate.WaitAsync(token);
             try
             {
                 // Options raise events consumed by UI code, so apply the reload on the UI dispatcher.
@@ -330,25 +335,16 @@ public static class OptionsStorage
                     await ValidateConfigFileAsync();
                 }).Task.Unwrap();
             }
-            finally
+            catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+            catch (Exception ex)
             {
-                m_watcherReloadGate.Release();
+                m_logger?.LogError($"Error handling config file change {ex.GetType()} {ex.Message}");
             }
-        }
-        catch (OperationCanceledException) { }
-        catch (Exception e)
-        {
-            m_logger?.LogError($"Error handling config file change {e.GetType()} {e.Message}");
-        }
+        });
     }
 
     private static void CancelPendingWatcherReload()
     {
-        lock (m_watcherDebounceLock)
-        {
-            m_watcherDebounceCts?.Cancel();
-            m_watcherDebounceCts?.Dispose();
-            m_watcherDebounceCts = null;
-        }
+        m_watcherDebouncer.CancelPending();
     }
 }
