@@ -21,7 +21,7 @@ public static class VoicemeeterApiClient
         VeryFast
     }
 
-    private static Timer m_loopTimer = new()
+    private static System.Timers.Timer m_loopTimer = new()
     {
         AutoReset = true
     };
