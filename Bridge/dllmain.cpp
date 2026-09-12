@@ -1,12 +1,11 @@
 #include <string>
 #include <Windows.h>
-#include <Shlwapi.h>
+#include <Shellapi.h>
 
 #define NETHOST_USE_AS_STATIC
 #include "inc\hostfxr.h"
 #include <vector>
 
-#pragma comment(lib, "shlwapi.lib")
 #pragma warning(disable : 4996)
 
 hostfxr_initialize_for_dotnet_command_line_fn init_cmdline;
@@ -18,10 +17,22 @@ hostfxr_run_app_fn run_fptr;
 
 std::wstring GetExecutableDir()
 {
-    WCHAR buf[MAX_PATH];
-    GetModuleFileName(nullptr, buf, MAX_PATH);
-    PathRemoveFileSpec(buf);
-    return buf;
+    std::vector<WCHAR> buffer(512);
+    for (;;)
+    {
+        DWORD len = GetModuleFileNameW(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
+        if (len == 0)
+            return {};
+
+        if (len < buffer.size() - 1)
+        {
+            std::wstring path(buffer.data(), len);
+            auto separator = path.find_last_of(L"\\/");
+            return separator == std::wstring::npos ? std::wstring{} : path.substr(0, separator);
+        }
+
+        buffer.resize(buffer.size() * 2);
+    }
 }
 
 bool load_hostfxr()
@@ -29,25 +40,39 @@ bool load_hostfxr()
     auto fxr_path = GetExecutableDir() + L"\\hostfxr.dll";
 
     HMODULE lib = LoadLibraryW(fxr_path.c_str());
+    if (!lib)
+        return false;
+
     init_cmdline = (hostfxr_initialize_for_dotnet_command_line_fn)GetProcAddress(lib, "hostfxr_initialize_for_dotnet_command_line");
     run_fptr = (hostfxr_run_app_fn)GetProcAddress(lib, "hostfxr_run_app");
     close_fptr = (hostfxr_close_fn)GetProcAddress(lib, "hostfxr_close");
 
-    return (init_cmdline && run_fptr && close_fptr);
+    if (!(init_cmdline && run_fptr && close_fptr))
+    {
+        FreeLibrary(lib);
+        init_cmdline = nullptr;
+        run_fptr = nullptr;
+        close_fptr = nullptr;
+        return false;
+    }
+
+    return true;
 }
 
 HRESULT LoadCLR()
 {
     auto host_path = GetExecutableDir() + L"\\";
+    if (host_path == L"\\")
+        return E_FAIL;
+
     auto exec_path = host_path + L"VoicemeeterFancyOsd.dll";
 
     if (!load_hostfxr())
     {
         // Nope, not necessary if you use Debug (x64) configuration.
         MessageBox(0, L"Framework-dependent net core? Then copy hostfxr.dll to the APPX output directory", L"Hey", 0);
-        auto pl = GetCurrentProcess();
-        TerminateProcess(pl, EXIT_SUCCESS);
-        return EXIT_FAILURE;
+        TerminateProcess(GetCurrentProcess(), EXIT_FAILURE);
+        return E_FAIL;
     }
 
     hostfxr_initialize_parameters params{};
@@ -60,20 +85,22 @@ HRESULT LoadCLR()
     // The CoreCLR executes with empty arguments if there are no arguments.
     int argc = 0;
     LPWSTR* argv = CommandLineToArgvW(GetCommandLine(), &argc);
+    if (!argv)
+    {
+        TerminateProcess(GetCurrentProcess(), EXIT_FAILURE);
+        return E_FAIL;
+    }
 
     int32_t init_res;
     if (argc > 1)
     {
-        const char_t** dotnet_args = new const char_t * [argc + 1];
+        std::vector<const char_t*> dotnet_args(argc + 1);
 
         dotnet_args[0] = exec_path.c_str(); // The 1st argument has to be the path of the main ModernFlyouts.dll (.NET) library
         for (size_t i = 0; i < argc; i++)
             dotnet_args[i + 1] = *(argv + i); // Subsequent arguments are passed after that
 
-        // TODO: We should clear up the array BTW.
-        // But the process will exit after .NET CoreCLR shuts down anyway so... *shrug*
-
-        init_res = init_cmdline(1 + argc, dotnet_args, &params, &handle);
+        init_res = init_cmdline(1 + argc, dotnet_args.data(), &params, &handle);
     }
     else
     {
@@ -81,19 +108,25 @@ HRESULT LoadCLR()
         init_res = init_cmdline(1, dotnet_args, &params, &handle);
     }
 
+    LocalFree(argv);
+
     bool isSuccess = (init_res >= 0) && (init_res <= 2);
     if (!isSuccess)
     {
         std::wstring message = L"Result code: " + std::to_wstring(init_res) +
             L". Check if the correct version of .NET is installed\nProgram may use different .NET version after update";
         MessageBox(0, message.c_str(), L"Error loading CLR", 0);
+        if (handle)
+            close_fptr(handle);
+        TerminateProcess(GetCurrentProcess(), EXIT_FAILURE);
+        return E_FAIL;
     }
 
-    run_fptr(handle);
+    int32_t run_res = run_fptr(handle);
     close_fptr(handle);
 
     auto p = GetCurrentProcess();
-    TerminateProcess(p, EXIT_SUCCESS);
+    TerminateProcess(p, static_cast<UINT>(run_res));
 
     //It will never happen :)
     return S_OK;

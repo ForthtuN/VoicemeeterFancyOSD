@@ -1,6 +1,8 @@
-﻿using IWshRuntimeLibrary;
-using System;
+﻿using System;
 using System.IO;
+using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.ComTypes;
+using System.Text;
 
 namespace AtgDev.Utils;
 
@@ -98,12 +100,11 @@ public class AutostartManager
 
         string shortcutPath = Path.Combine(startupPath, ProgramName + ".lnk");
 
-        WshShellClass wsh = new();
-        var shortcut = (IWshShortcut)wsh.CreateShortcut(shortcutPath);
-        shortcut.TargetPath = ProgramPath;
-        shortcut.WorkingDirectory = Path.GetDirectoryName(ProgramPath);
-        shortcut.IconLocation = string.IsNullOrEmpty(IconLocation) ? ProgramPath : IconLocation;
-        shortcut.Save();
+        WindowsShortcut.Create(
+            shortcutPath,
+            ProgramPath,
+            Path.GetDirectoryName(ProgramPath),
+            string.IsNullOrEmpty(IconLocation) ? ProgramPath : IconLocation);
 
         m_shortcutPath = shortcutPath;
     }
@@ -114,5 +115,59 @@ public class AutostartManager
 
         System.IO.File.Delete(m_shortcutPath);
         m_shortcutPath = null;
+    }
+}
+internal static class WindowsShortcut
+{
+    internal static void Create(string shortcutPath, string targetPath, string workingDirectory, string iconLocation)
+    {
+        object shellLinkObject = new ShellLink();
+        try
+        {
+            IShellLinkW shellLink = (IShellLinkW)shellLinkObject;
+            shellLink.SetPath(targetPath);
+            shellLink.SetWorkingDirectory(workingDirectory ?? string.Empty);
+            shellLink.SetIconLocation(iconLocation, 0);
+
+            ((IPersistFile)shellLinkObject).Save(shortcutPath, true);
+        }
+        finally
+        {
+            if (Marshal.IsComObject(shellLinkObject))
+            {
+                Marshal.FinalReleaseComObject(shellLinkObject);
+            }
+        }
+    }
+
+    [ComImport]
+    [Guid("00021401-0000-0000-C000-000000000046")]
+    private sealed class ShellLink
+    {
+    }
+
+    [ComImport]
+    [Guid("000214F9-0000-0000-C000-000000000046")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IShellLinkW
+    {
+        void GetPath([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder pszFile, int cch, IntPtr pfd, uint fFlags);
+        void GetIDList(out IntPtr ppidl);
+        void SetIDList(IntPtr pidl);
+        void GetDescription([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder pszName, int cch);
+        void SetDescription([MarshalAs(UnmanagedType.LPWStr)] string pszName);
+        void GetWorkingDirectory([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder pszDir, int cch);
+        void SetWorkingDirectory([MarshalAs(UnmanagedType.LPWStr)] string pszDir);
+        void GetArguments([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder pszArgs, int cch);
+        void SetArguments([MarshalAs(UnmanagedType.LPWStr)] string pszArgs);
+        void GetHotkey(out short pwHotkey);
+        void SetHotkey(short wHotkey);
+        void GetShowCmd(out int piShowCmd);
+        void SetShowCmd(int iShowCmd);
+        void GetIconLocation([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder pszIconPath, int cch, out int piIcon);
+        void SetIconLocation([MarshalAs(UnmanagedType.LPWStr)] string pszIconPath, int iIcon);
+        void SetRelativePath([MarshalAs(UnmanagedType.LPWStr)] string pszPathRel, uint dwReserved);
+        void Resolve(IntPtr hwnd, uint fFlags);
+        void SetPath([MarshalAs(UnmanagedType.LPWStr)] string pszFile);
     }
 }
