@@ -15,10 +15,10 @@ public static class VoicemeeterApiClient
 {
     public enum Rate
     {
-        Slow,
-        Normal,
-        Fast,
-        VeryFast
+        Slow = 0,
+        Normal = 1,
+        Fast = 2,
+        VeryFast = 3
     }
 
     private static System.Timers.Timer m_loopTimer = new()
@@ -129,15 +129,7 @@ public static class VoicemeeterApiClient
             m_poolingRate = value;
             if (IsIdling) return;
 
-            double interval = 1000.0 / value switch
-            {
-                Rate.Slow => 15,
-                Rate.Normal => 30,
-                Rate.Fast => 60,
-                Rate.VeryFast => 140,
-                _ => 30
-            };
-            m_loopTimer.Interval = interval;
+            m_loopTimer.Interval = PollingRatePolicy.GetIntervalMilliseconds((int)value);
         }
     }
 
