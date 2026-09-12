@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Windows;
@@ -591,6 +591,10 @@ public partial class BandWindow : ContentControl, IWndProcObject
         }
         if (Activatable) SetForegroundWindow(Handle);
         RepositionHwndSource();
+        SetWindowPos(hwndSource.Handle, new IntPtr(-1),
+            0, 0, 0, 0,
+            SWP.NOACTIVATE | SWP.NOMOVE | SWP.NOSIZE | SWP.NOOWNERZORDER | SWP.SHOWWINDOW);
+        ShowWindow(hwndSource.Handle, (int)ShowWindowCommands.ShowNoActivate);
         OnShown();
     }
 
