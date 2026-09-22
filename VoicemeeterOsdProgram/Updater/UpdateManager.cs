@@ -21,7 +21,7 @@ public static class UpdateManager
 {
     public static Logger logger;
 
-    private const string Owner = "A-tG";
+    private const string Owner = "ForthtuN";
     private const string RepoName = "VoicemeeterFancyOSD";
     private const string ExtractedFolder = "VoicemeeterFancyOSD";
     private const string apiUrl = $"api.github.com/repos/{Owner}/{RepoName}/releases/latest";

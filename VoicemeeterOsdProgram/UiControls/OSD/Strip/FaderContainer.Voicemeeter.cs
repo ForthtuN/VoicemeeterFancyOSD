@@ -33,7 +33,7 @@ partial class FaderContainer : IOsdChildElement
             }
 
             m_vmParam = value;
-            Fader.Value = m_vmParam.Value;
+            SetDisplayedValue(m_vmParam.Value, false);
             m_vmParam.ReadValueChanged += OnVmValueChanged;
             m_vmParam.ValueRead += OnVmValueRead;
             Fader.ValueChanged += OnFaderValueChanged;
@@ -42,10 +42,7 @@ partial class FaderContainer : IOsdChildElement
 
     private void OnVmValueRead(object sender, ValOldNew<float> e)
     {
-        // using flag to prevent triggering OnFaderValueChanged
-        Fader.isCustomFlag = true;
-        Fader.Value = e.newVal;
-        Fader.isCustomFlag = false;
+        SetDisplayedValue(e.newVal, true);
     }
 
     private void OnVmValueChanged(object sender, ValOldNew<float> e)
@@ -72,6 +69,7 @@ partial class FaderContainer : IOsdChildElement
         var s = sender as ClrChangeSlider;
         if ((s is null) || s.isCustomFlag) return;
 
+        StopValueAnimation();
         m_vmParam.Write((float)e.NewValue);
     }
 }

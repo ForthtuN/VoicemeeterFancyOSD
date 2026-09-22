@@ -13,6 +13,8 @@ namespace VoicemeeterOsdProgram.Core;
 
 public static class VoicemeeterApiClient
 {
+    private const int HealthCheckIntervalMs = 250;
+
     public enum Rate
     {
         Slow = 0,
@@ -34,6 +36,7 @@ public static class VoicemeeterApiClient
     private static bool m_isInit = false;
     private static int m_isPolling;
     private static int m_isExiting;
+    private static long m_nextHealthCheckTickCount;
 
     private static Logger m_logger = Globals.Logger;
 
@@ -244,7 +247,7 @@ public static class VoicemeeterApiClient
         {
             if (Volatile.Read(ref m_isExiting) != 0) return;
 
-            HandleServerConnection();
+            HandleServerAndProgramType();
 
             if (!IsHandlingParams)
             {
@@ -255,7 +258,6 @@ public static class VoicemeeterApiClient
 
             if (!m_isVmRunning && m_isVmTurningOn && m_isTypeChanging) return;
 
-            HandleProgramType();
             HandleParameters();
         }
         finally
@@ -274,21 +276,23 @@ public static class VoicemeeterApiClient
         }
     }
 
-    private static void HandleServerConnection()
+    private static void HandleServerAndProgramType()
     {
         if (m_isVmTurningOn) return;
 
-        bool isRunningActual = IsVoicemeeterRunning;
+        long now = Environment.TickCount64;
+        if (now < m_nextHealthCheckTickCount) return;
+        m_nextHealthCheckTickCount = now + HealthCheckIntervalMs;
+
+        var actualType = VoicemeeterType.None;
+        bool isRunningActual = Api?.GetVoicemeeterType(out actualType) == 0;
         IsIdling = !isRunningActual;
         IsVoicemeeterRunning = isRunningActual;
-    }
 
-    private static void HandleProgramType()
-    {
-        if (m_isTypeChanging) return;
-
-        var actualType = ProgramType;
-        ProgramType = actualType;
+        if (isRunningActual && !m_isTypeChanging)
+        {
+            ProgramType = actualType;
+        }
     }
 
     private static void HandleParameters()

@@ -28,14 +28,14 @@
                     <TextBlock Text="{Binding Version}" Padding="0" HorizontalAlignment="Left"/>
                 </StackPanel>
                 <TextBlock>
-                    <Hyperlink NavigateUri="www.github.com/A-tG/VoicemeeterFancyOSD" 
+                    <Hyperlink NavigateUri="www.github.com/ForthtuN/VoicemeeterFancyOSD"
                                CommandParameter="{Binding NavigateUri, RelativeSource={RelativeSource self}}"
                                Command="{Binding OpenUriCommand}">
                         Source code, Releases (GitHub)
                     </Hyperlink>
                 </TextBlock>
                 <TextBlock>
-                    <Hyperlink NavigateUri="www.github.com/A-tG/VoicemeeterFancyOSD/issues" 
+                    <Hyperlink NavigateUri="www.github.com/ForthtuN/VoicemeeterFancyOSD/issues"
                                CommandParameter="{Binding NavigateUri, RelativeSource={RelativeSource self}}"
                                Command="{Binding OpenUriCommand}">
                         Report a Bug (GitHub)

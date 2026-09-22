@@ -1,4 +1,4 @@
-﻿<ContentControl x:Class="VoicemeeterOsdProgram.UiControls.OSD.Strip.LimiterContainer"
+<ContentControl x:Class="VoicemeeterOsdProgram.UiControls.OSD.Strip.LimiterContainer"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
@@ -19,7 +19,10 @@
                 Width="{Binding ActualWidth, ElementName=LimiterBorder, Mode=OneWay}"
                 BorderBrush="{Binding Foreground, ElementName=Limiter, Mode=OneWay}"
                 CornerRadius="{Binding CornerRadius, ElementName=LimiterBorder, Mode=OneWay}" BorderThickness="1"
-                Opacity="0">
+                Opacity="0" RenderTransformOrigin="0.5,0.5">
+            <Border.RenderTransform>
+                <ScaleTransform ScaleX="1" ScaleY="1"/>
+            </Border.RenderTransform>
             <Border.Effect>
                 <DropShadowEffect ShadowDepth="0" BlurRadius="18" Color="{Binding Foreground.Color, ElementName=Limiter}"/>
             </Border.Effect>

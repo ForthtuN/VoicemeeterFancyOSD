@@ -97,7 +97,7 @@ HRESULT LoadCLR()
         std::vector<const char_t*> dotnet_args(argc + 1);
 
         dotnet_args[0] = exec_path.c_str(); // The 1st argument has to be the path of the main ModernFlyouts.dll (.NET) library
-        for (size_t i = 0; i < argc; i++)
+        for (int i = 0; i < argc; i++)
             dotnet_args[i + 1] = *(argv + i); // Subsequent arguments are passed after that
 
         init_res = init_cmdline(1 + argc, dotnet_args.data(), &params, &handle);

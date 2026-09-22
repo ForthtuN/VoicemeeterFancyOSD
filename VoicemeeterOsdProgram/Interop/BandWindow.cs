@@ -311,8 +311,12 @@ public partial class BandWindow : ContentControl, IWndProcObject
         if (regResult == 0)
             throw new Win32Exception(Marshal.GetLastWin32Error());
 
-        var extStyles = (int)(ExtendedWindowStyles.WS_EX_LAYERED | 
-            ExtendedWindowStyles.WS_EX_NOREDIRECTIONBITMAP |
+        // The outer BandWindow has no visual content of its own; the WPF
+        // HwndSource below owns the per-pixel-transparent render surface.
+        // Do not combine WS_EX_LAYERED with WS_EX_NOREDIRECTIONBITMAP here:
+        // the latter explicitly opts this host HWND out of a DWM redirection
+        // surface, while layered composition belongs to the render HWND.
+        var extStyles = (int)(ExtendedWindowStyles.WS_EX_NOREDIRECTIONBITMAP |
             ExtendedWindowStyles.WS_EX_TRANSPARENT |
             ExtendedWindowStyles.WS_EX_NOACTIVATE);
         var styles = (uint)WindowStyles.WS_POPUP & ~(uint)WindowStyles.WS_SYSMENU;
@@ -377,7 +381,9 @@ public partial class BandWindow : ContentControl, IWndProcObject
         hookManager.OnHwndCreated(hWnd);
         HwndSourceParameters param = new()
         {
-            WindowStyle = unchecked((int)(WindowStyles.WS_VISIBLE | WindowStyles.WS_POPUP)),
+            // Keep the render HWND genuinely hidden until BandWindow.Show().
+            // Show() explicitly reveals it after the host window is visible.
+            WindowStyle = unchecked((int)WindowStyles.WS_POPUP),
             // !!! may need to update hwndSource's styles on property change and only hwndSource
             ExtendedWindowStyle = (int)((Activatable ? 0 : ExtendedWindowStyles.WS_EX_NOACTIVATE) |
                 (TopMost ? ExtendedWindowStyles.WS_EX_TOPMOST : 0) |
@@ -633,6 +639,10 @@ public partial class BandWindow : ContentControl, IWndProcObject
     {
         if (!HasSourceCreated || _isVisibilityChanging)
             return;
+        if (hwndSource != null)
+        {
+            ShowWindow(hwndSource.Handle, (int)ShowWindowCommands.Hide);
+        }
         //ShowWindowAsync(Handle, ShowWindowCommands.Hide);
         ShowWindow(Handle, (int)ShowWindowCommands.Hide);
         _isVisibilityChanging = true;

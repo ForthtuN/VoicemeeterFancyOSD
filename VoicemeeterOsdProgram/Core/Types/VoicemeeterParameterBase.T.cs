@@ -15,8 +15,9 @@ public abstract class VoicemeeterParameterBase<T>(RemoteApiWrapper api, string c
         {
             if (m_value.Equals(value)) return;
 
+            var oldVal = m_value;
             m_value = value;
-            OnReadValueChanged(m_value, value);
+            OnReadValueChanged(oldVal, value);
         }
     }
 

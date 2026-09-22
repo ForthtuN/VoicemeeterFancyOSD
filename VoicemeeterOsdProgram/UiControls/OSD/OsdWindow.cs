@@ -16,23 +16,35 @@ public class OsdWindow : BandWindow
 {
     public Logger Logger;
 
+    private const int FadeInTimeMs = 140;
     private const int FadeOutTimeMs = 200;
 
     private Rect m_workingArea;
-    private DoubleAnimation m_fadeOutAnim;
+    private readonly DoubleAnimation m_fadeInAnim;
+    private readonly DoubleAnimation m_fadeOutAnim;
+    private bool m_isFadeOutRunning;
 
     public OsdWindow() : base()
     {
-        var anim = new DoubleAnimation()
+        m_fadeInAnim = new DoubleAnimation()
+        {
+            From = 0.0,
+            To = 1.0,
+            EasingFunction = new CubicEase() { EasingMode = EasingMode.EaseOut },
+            Duration = new Duration(TimeSpan.FromMilliseconds(FadeInTimeMs)),
+            FillBehavior = FillBehavior.Stop
+        };
+
+        var fadeOutAnim = new DoubleAnimation()
         {
             From = 1.0,
             To = 0.0,
-            EasingFunction = new ExponentialEase() { EasingMode = EasingMode.EaseIn },
+            EasingFunction = new CubicEase() { EasingMode = EasingMode.EaseIn },
             Duration = new Duration(TimeSpan.FromMilliseconds(FadeOutTimeMs)),
             FillBehavior = FillBehavior.Stop
         };
-        anim.Completed += OnFadeOutComplete;
-        m_fadeOutAnim = anim;
+        fadeOutAnim.Completed += OnFadeOutComplete;
+        m_fadeOutAnim = fadeOutAnim;
 
         Loaded += (_, _) => UpdatePos();
         SizeChanged += (_, _) => UpdatePosAlign();
@@ -68,7 +80,9 @@ public class OsdWindow : BandWindow
     {
         if (duration > 0)
         {
+            m_fadeOutAnim.From = Opacity;
             m_fadeOutAnim.Duration = new Duration(TimeSpan.FromMilliseconds(duration));
+            m_isFadeOutRunning = true;
             BeginAnimation(OpacityProperty, m_fadeOutAnim);
         }
         else
@@ -81,8 +95,17 @@ public class OsdWindow : BandWindow
 
     public new void Show()
     {
-        CancelAnimation();
+        bool wasVisible = Visibility == Visibility.Visible;
+        if (!wasVisible || m_isFadeOutRunning)
+        {
+            CancelOpacityAnimation();
+        }
         base.Show();
+
+        if (!wasVisible)
+        {
+            BeginAnimation(OpacityProperty, m_fadeInAnim);
+        }
     }
 
     private void UpdateWorkingArea()
@@ -137,10 +160,11 @@ public class OsdWindow : BandWindow
         UpdatePosAlign();
     }
 
-    private void CancelAnimation()
+    private void CancelOpacityAnimation()
     {
         m_fadeOutAnim.Completed -= OnFadeOutComplete;
         BeginAnimation(OpacityProperty, null);
+        m_isFadeOutRunning = false;
         m_fadeOutAnim.Completed += OnFadeOutComplete;
     }
     private void OnDispSettChanged(object sender, EventArgs e)
@@ -159,7 +183,11 @@ public class OsdWindow : BandWindow
     private void OnEventUpdatePos<T>(object sender, T e) => UpdatePos();
     private void OnEventUpdatePosAlign<T>(object sender, T e) => UpdatePosAlign();
 
-    private void OnFadeOutComplete(object sender, EventArgs e) => Hide();
+    private void OnFadeOutComplete(object sender, EventArgs e)
+    {
+        m_isFadeOutRunning = false;
+        Hide();
+    }
 
     private void OsdWindow_Unloaded(object sender, RoutedEventArgs e)
     {

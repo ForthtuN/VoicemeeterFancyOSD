@@ -9,7 +9,7 @@ public class VoicemeeterOptions : OptionsBase
     private VoicemeeterApiClient.Rate m_apiPollingRate = VoicemeeterApiClient.Rate.Normal;
     private uint m_initDelay = 0;
 
-    [Description("How fast Voicemeeter API is called to to track changes. Recommended: Normal or Fast. Faster rate - more cpu usage and OSD is more responsive to quick changes. Options represent 15, 30, 60, 144hz")]
+    [Description("How fast Voicemeeter API is called to to track changes. Recommended: Normal or Fast. Faster rate - more cpu usage and OSD is more responsive to quick changes. Options represent 15, 30, 60, 140hz")]
     public VoicemeeterApiClient.Rate ApiPollingRate
     {
         get => m_apiPollingRate;
